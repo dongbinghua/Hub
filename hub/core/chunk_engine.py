@@ -14,6 +14,7 @@ from hub.core.storage import S3Provider, GCSProvider
 from hub.core.tiling.deserialize import combine_chunks, translate_slices, coalesce_tiles
 from hub.core.tiling.serialize import break_into_tiles
 from hub.util.casting import get_empty_sample, intelligent_cast
+from hub.util.compress_ranges import compress_indexes_into_ranges
 from hub.util.shape_interval import ShapeInterval
 from hub.constants import DEFAULT_MAX_CHUNK_SIZE, FIRST_COMMIT_ID, PARTIAL_NUM_SAMPLES
 from hub.core.chunk.base_chunk import BaseChunk, InputSample
@@ -1047,39 +1048,58 @@ class ChunkEngine:
             return samples
         return np.array(samples)
 
+    def populate_data_cache(self, global_sample_index, enc):
+        row = enc.__getitem__(global_sample_index, True)[0][1]
+        chunks = self.get_chunks_for_sample(global_sample_index)
+        assert len(chunks) == 1
+
+        chunk = chunks[0]
+        chunk_arr = self.chunk_id_encoder.array
+
+        first_sample = 0 if row == 0 else chunk_arr[row - 1][1] + 1
+        last_sample = self.chunk_id_encoder.array[row][1]
+        num_samples = last_sample - first_sample + 1
+
+        full_shape = (num_samples,) + tuple(self.tensor_meta.max_shape)
+        dtype = self.tensor_meta.dtype
+
+        data_bytes = bytearray(chunk.data_bytes)
+        self.cached_data = np.frombuffer(data_bytes, dtype).reshape(full_shape)
+        self.cache_range = range(first_sample, last_sample + 1)
+
     def numpy_from_data_cache(self, index, length, aslist):
         samples = []
         enc = self.chunk_id_encoder
         sub_index = tuple(entry.value for entry in index.values[1:])
-        for global_sample_index in index.values[0].indices(length):
-            if self.cached_data is None or global_sample_index not in self.cache_range:
-                row = enc.__getitem__(global_sample_index, True)[0][1]
-                chunks = self.get_chunks_for_sample(global_sample_index)
-                assert len(chunks) == 1
+        indexes = list(index.values[0].indices(length))
+        while indexes:
+            first_index = indexes[0]
+            if self.cached_data is None or first_index not in self.cache_range:
+                self.populate_data_cache(first_index, enc)
 
-                chunk = chunks[0]
-                chunk_arr = self.chunk_id_encoder.array
+            cache_indexes = self.get_indexes_in_range(indexes)
+            ranges = compress_indexes_into_ranges(cache_indexes)
+            for start, end in ranges:
+                new_samples = self.cached_data[start : end + 1]
+                samples.extend(new_samples)
+            indexes = indexes[len(cache_indexes) :]
 
-                first_sample = 0 if row == 0 else chunk_arr[row - 1][1] + 1
-                last_sample = self.chunk_id_encoder.array[row][1]
-                num_samples = last_sample - first_sample + 1
+        samples = np.array(samples)
+        if sub_index:
+            samples = samples[:, sub_index]
 
-                full_shape = (num_samples,) + tuple(self.tensor_meta.max_shape)
-                dtype = self.tensor_meta.dtype
-
-                data_bytes = bytearray(chunk.data_bytes)
-                self.cached_data = np.frombuffer(data_bytes, dtype).reshape(full_shape)
-                self.cache_range = range(first_sample, last_sample + 1)
-
-            sample = self.cached_data[global_sample_index - self.cache_range.start]  # type: ignore
-
-            # need to copy if aslist otherwise user might modify the returned data
-            # if not aslist, we already do np.array(samples) while formatting which copies
-            sample = sample.copy() if aslist else sample
-            if sub_index:
-                sample = sample[sub_index]
-            samples.append(sample)
+        if aslist:
+            samples = samples.tolist()
         return samples
+
+    def get_indexes_in_range(self, indexes):
+        cache_indexes = []
+        for i in indexes:
+            if i in self.cache_range:
+                cache_indexes.append(i)
+            else:
+                break
+        return cache_indexes
 
     def get_chunks_for_sample(
         self,
