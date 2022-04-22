@@ -1050,6 +1050,7 @@ class ChunkEngine:
     def numpy_from_data_cache(self, index, length, aslist):
         samples = []
         enc = self.chunk_id_encoder
+        sub_index = tuple(entry.value for entry in index.values[1:])
         for global_sample_index in index.values[0].indices(length):
             if self.cached_data is None or global_sample_index not in self.cache_range:
                 row = enc.__getitem__(global_sample_index, True)[0][1]
@@ -1075,7 +1076,8 @@ class ChunkEngine:
             # need to copy if aslist otherwise user might modify the returned data
             # if not aslist, we already do np.array(samples) while formatting which copies
             sample = sample.copy() if aslist else sample
-            sample = sample[tuple(entry.value for entry in index.values[1:])]
+            if sub_index:
+                sample = sample[sub_index]
             samples.append(sample)
         return samples
 
