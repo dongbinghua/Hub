@@ -64,7 +64,8 @@ class Lock(object):
     def release(self):
         try:
             del self.storage[self.path]
-        except Exception:
+        except Exception as e:
+            print("Error releaseing lock: ", e)
             pass
 
 
