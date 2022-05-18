@@ -54,6 +54,7 @@ from hub.util.link import save_link_creds
 from hub.util.merge import merge
 from hub.util.notebook import is_colab
 from hub.util.path import convert_pathlib_to_string_if_needed
+from hub.util.path import convert_windows_path_to_linux
 from hub.util.warnings import always_warn
 from hub.util.exceptions import (
     CouldNotCreateNewDatasetException,
@@ -1473,6 +1474,9 @@ class Dataset:
         Raises:
             RenameError: If `path` points to a different directory.
         """
+        self.path = convert_pathlib_to_string_if_needed(self.path)
+        self.path = convert_windows_path_to_linux(self.path)
+
         path = convert_pathlib_to_string_if_needed(path)
         path = path.rstrip("/")
         if posixpath.split(path)[0] != posixpath.split(self.path)[0]:
