@@ -1474,7 +1474,6 @@ class Dataset:
         Raises:
             RenameError: If `path` points to a different directory.
         """
-        self.path = convert_pathlib_to_string_if_needed(self.path)
         self.path = convert_windows_path_to_linux_if_needed(self.path)
 
         path = convert_pathlib_to_string_if_needed(path)
