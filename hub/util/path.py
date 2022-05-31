@@ -85,7 +85,9 @@ def convert_pathlib_to_string_if_needed(path: Union[str, pathlib.Path]) -> str:
     return path
 
 
-def convert_windows_path_to_linux_if_needed(path: Union[str, pathlib.Path]) -> Union[str, pathlib.Path]:
+def convert_windows_path_to_linux_if_needed(
+    path: Union[str, pathlib.Path]
+) -> Union[str, pathlib.Path]:
     path_str = str(path)
     path_str = path_str.replace("\\", "/")
     if isinstance(path, pathlib.Path):
